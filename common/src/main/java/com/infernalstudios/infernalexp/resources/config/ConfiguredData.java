@@ -173,16 +173,18 @@ public class ConfiguredData {
                 json -> Common.appendToTag(json, "infernalexp:glowlight_brazier"));
     }
 
-    public String apply(@Nullable String original) {
+    public @Nullable String apply(@Nullable String original) {
         try {
-            JsonElement parsedOriginal = gson.fromJson(original == null ? "" : original, JsonElement.class);
+            JsonElement parsedOriginal = gson.fromJson(original, JsonElement.class);
             String modifiedString = this.provider.apply(parsedOriginal);
-
-            return gson.fromJson(modifiedString, JsonElement.class).toString();
-
-        } catch (JsonSyntaxException e) {
-            IEConstants.LOG.error("Failed to parse JSON for target: {}", this.target, e);
-            return original != null ? original : "";
+            JsonElement modified = gson.fromJson(modifiedString, JsonElement.class);
+            if (modified == null || modified.isJsonNull()) {
+                return original;
+            }
+            return modified.toString();
+        } catch (RuntimeException e) {
+            IEConstants.LOG.error("Failed to apply configured JSON for target: {}. Keeping original resource.", this.target, e);
+            return original;
         }
     }
 

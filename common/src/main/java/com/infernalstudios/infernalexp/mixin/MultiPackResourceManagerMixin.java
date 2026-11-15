@@ -7,6 +7,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.resources.MultiPackResourceManager;
 import net.minecraft.server.packs.resources.Resource;
 import org.apache.commons.io.input.CharSequenceInputStream;
+import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -24,9 +25,10 @@ import java.util.stream.Collectors;
 @Mixin(MultiPackResourceManager.class)
 public class MultiPackResourceManagerMixin {
     @Unique
-    private static Resource readAndApply(Optional<Resource> resource, ConfiguredData data) {
+    private static @Nullable Resource readAndApply(Optional<Resource> resource, ConfiguredData data) {
         if (resource.isEmpty()) {
             String result = data.apply(null);
+            if (result == null || result.isBlank()) return null;
             return new Resource(ConfiguredResources.INSTANCE,
                     () -> new CharSequenceInputStream(result, StandardCharsets.UTF_8));
         }
@@ -34,6 +36,7 @@ public class MultiPackResourceManagerMixin {
         try (InputStream stream = resource.get().open()) {
             String originalText = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
             String result = data.apply(originalText);
+            if (result == null || result.isBlank() || result.equals(originalText)) return resource.get();
 
             return new Resource(ConfiguredResources.INSTANCE,
                     () -> new CharSequenceInputStream(result, StandardCharsets.UTF_8));
@@ -58,7 +61,7 @@ public class MultiPackResourceManagerMixin {
         if (data == null || !data.enabled.get() || (original.isPresent() && original.get().source() instanceof ConfiguredResources))
             return original;
 
-        return Optional.of(readAndApply(original, data));
+        return Optional.ofNullable(readAndApply(original, data));
     }
 
     @ModifyReturnValue(method = "getResourceStack", at = @At("RETURN"))
@@ -78,7 +81,8 @@ public class MultiPackResourceManagerMixin {
         for (ConfiguredData data : ConfiguredData.INSTANCES) {
             if (data.enabled.get() && data.target.getPath().startsWith(startingPath + "/") && allowedPathPredicate.test(data.target)) {
                 if (!original.containsKey(data.target)) {
-                    original.put(data.target, readAndApply(Optional.empty(), data));
+                    Resource generated = readAndApply(Optional.empty(), data);
+                    if (generated != null) original.put(data.target, generated);
                 }
             }
         }
@@ -98,11 +102,14 @@ public class MultiPackResourceManagerMixin {
                                                                             String startingPath, Predicate<ResourceLocation> allowedPathPredicate) {
 
         for (ConfiguredData data : ConfiguredData.INSTANCES) {
-            if (data.enabled.get() && data.target.getPath().startsWith(startingPath) && allowedPathPredicate.test(data.target)) {
+            if (data.enabled.get() && data.target.getPath().startsWith(startingPath + "/") && allowedPathPredicate.test(data.target)) {
                 if (!original.containsKey(data.target)) {
                     List<Resource> mutableList = new ArrayList<>();
-                    mutableList.add(readAndApply(Optional.empty(), data));
-                    original.put(data.target, mutableList);
+                    Resource generated = readAndApply(Optional.empty(), data);
+                    if (generated != null) {
+                        mutableList.add(generated);
+                        original.put(data.target, mutableList);
+                    }
                 }
             }
         }
